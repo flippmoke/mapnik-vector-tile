@@ -19,6 +19,8 @@
 #include <mapnik/datasource.hpp>
 #include <mapnik/feature.hpp>
 #include <mapnik/feature_factory.hpp>
+#include <mapnik/raster.hpp>
+#include <mapnik/graphics.hpp>
 
 #include <memory>
 #include <stdexcept>
@@ -251,6 +253,7 @@ namespace mapnik { namespace vector {
         {
             mapnik::vector::spherical_mercator<22> merc(tile_size_);
             merc.xyz(extent_,x_,y_,z_);
+            extent_initialized_ = true;
         }
         return extent_;
     }
@@ -261,6 +264,131 @@ namespace mapnik { namespace vector {
     }
 
     layer_descriptor tile_datasource::get_descriptor() const
+    {
+        return desc_;
+    }
+
+
+    class image_featureset : public Featureset
+    {
+    public:
+        image_featureset(boost::shared_ptr<mapnik::image_32> layer,
+                         mapnik::box2d<double> extent)
+            : layer_(layer),
+              extent_(extent),
+              tr_("utf-8"),
+              first_(true),
+              ctx_(boost::make_shared<mapnik::context_type>())
+        {
+        }
+
+        virtual ~image_featureset() {}
+
+        feature_ptr next()
+        {
+            if (first_)
+            {
+                std::clog << "here\n";
+                feature_ptr feature = feature_factory::create(ctx_,1);
+                feature->set_raster(boost::make_shared<mapnik::raster>(layer_,extent_));
+                first_ = false;
+                return feature;
+            }
+            return feature_ptr();
+        }
+
+    private:
+        boost::shared_ptr<mapnik::image_32> layer_;
+        mapnik::box2d<double> extent_;
+        mapnik::transcoder tr_;
+        bool first_;
+        mapnik::context_ptr ctx_;
+    };
+
+    class image_datasource : public datasource
+    {
+        friend class image_featureset;
+    public:
+        image_datasource(boost::shared_ptr<mapnik::image_32> layer,
+                        unsigned x,
+                        unsigned y,
+                        unsigned z,
+                        unsigned tile_size);
+        virtual ~image_datasource();
+        datasource::datasource_t type() const;
+        featureset_ptr features(query const& q) const;
+        featureset_ptr features_at_point(coord2d const& pt, double tol = 0) const;
+        void set_envelope(box2d<double> const& bbox);
+        box2d<double> envelope() const;
+        boost::optional<geometry_t> get_geometry_type() const;
+        layer_descriptor get_descriptor() const;
+    private:
+        mapnik::layer_descriptor desc_;
+        boost::shared_ptr<mapnik::image_32> layer_;
+        unsigned x_;
+        unsigned y_;
+        unsigned z_;
+        unsigned tile_size_;
+        mutable bool extent_initialized_;
+        mutable mapnik::box2d<double> extent_;
+        double tile_x_;
+        double tile_y_;
+        double scale_;
+    };
+
+// image__datasource impl
+    image_datasource::image_datasource(boost::shared_ptr<mapnik::image_32> layer,
+                                     unsigned x,
+                                     unsigned y,
+                                     unsigned z,
+                                     unsigned tile_size)
+        : datasource(parameters()),
+          desc_("in-memory datasource","utf-8"),
+          layer_(layer),
+          x_(x),
+          y_(y),
+          z_(z),
+          tile_size_(tile_size) {
+        mapnik::vector::spherical_mercator<26> merc(tile_size_);
+        merc.xyz(extent_,x_,y_,z_);
+        std::clog << "creating ds\n";
+    }
+
+    image_datasource::~image_datasource() {}
+
+    datasource::datasource_t image_datasource::type() const
+    {
+        return datasource::Raster;
+    }
+
+    featureset_ptr image_datasource::features(query const& q) const
+    {
+        return boost::make_shared<image_featureset>(layer_, extent_);
+    }
+
+    featureset_ptr image_datasource::features_at_point(coord2d const& pt, double tol) const
+    {
+        // TODO - add support
+        return featureset_ptr();
+    }
+
+    void image_datasource::set_envelope(box2d<double> const& bbox)
+    {
+        extent_initialized_ = true;
+        extent_ = bbox;
+    }
+
+    box2d<double> image_datasource::envelope() const
+    {
+        return extent_;
+    }
+
+    boost::optional<datasource::geometry_t> image_datasource::get_geometry_type() const
+    {
+        return datasource::Collection;
+    }
+
+    layer_descriptor image_datasource::get_descriptor() const
     {
         return desc_;
     }
