@@ -84,12 +84,10 @@ namespace mapnik { namespace vector {
             scale_denom *= scale_factor_;
             BOOST_FOREACH ( mapnik::layer const& lay, m_.layers() )
             {
-                backend_.start_tile_layer(lay.name());
                 if (lay.visible(scale_denom))
                 {
                     apply_to_layer(lay,proj,scale_denom);
                 }
-                backend_.stop_tile_layer();
             }
         }
 
@@ -202,6 +200,7 @@ namespace mapnik { namespace vector {
             {
                 return;
             }
+            backend_.start_tile_layer(lay.name());
             mapnik::feature_ptr feature;
             while ((feature = features->next()))
             {
@@ -215,22 +214,29 @@ namespace mapnik { namespace vector {
                     {
                         continue;
                     }
-                    if (handle_geometry(geom,
-                                        prj_trans,
-                                        buffered_query_ext) > 0)
+                    unsigned count = 0;
+                    unsigned commands = 0;
+                    handle_geometry(geom,
+                                    prj_trans,
+                                    buffered_query_ext,
+                                    count,
+                                    commands);
+                    if (count > 0)
                     {
                         painted_ = true;
                     }
                 }
-                backend_.stop_tile_feature();
+                backend_.stop_tile_feature(*feature);
             }
+            backend_.stop_tile_layer(lay.name());
         }
 
-        unsigned handle_geometry(mapnik::geometry_type & geom,
+        void handle_geometry(mapnik::geometry_type & geom,
                                  mapnik::proj_transform const& prj_trans,
-                                 mapnik::box2d<double> const& buffered_query_ext)
+                                 mapnik::box2d<double> const& buffered_query_ext,
+                                 unsigned & count,
+                                 unsigned & commands)
         {
-            unsigned path_count = 0;
             switch (geom.type())
             {
             case mapnik::Point:
@@ -240,7 +246,7 @@ namespace mapnik { namespace vector {
                     typedef mapnik::coord_transform<mapnik::CoordTransform,
                         mapnik::geometry_type> path_type;
                     path_type path(t_, geom, prj_trans);
-                    path_count = backend_.add_path(path, tolerance_, geom.type());
+                    backend_.add_path(path, tolerance_, geom.type(), count, commands);
                 }
                 break;
             }
@@ -257,7 +263,7 @@ namespace mapnik { namespace vector {
                         buffered_query_ext.maxy());
                     typedef mapnik::coord_transform<mapnik::CoordTransform, line_clipper> path_type;
                     path_type path(t_, clipped, prj_trans);
-                    path_count = backend_.add_path(path, tolerance_, geom.type());
+                    backend_.add_path(path, tolerance_, geom.type(), count, commands);
                 }
                 break;
             }
@@ -290,7 +296,7 @@ namespace mapnik { namespace vector {
 #endif
                     typedef mapnik::coord_transform<mapnik::CoordTransform, poly_clipper> path_type;
                     path_type path(t_, clipped, prj_trans);
-                    path_count = backend_.add_path(path, tolerance_, geom.type());
+                    backend_.add_path(path, tolerance_, geom.type(), count, commands);
                 }
                 break;
             }
@@ -301,7 +307,6 @@ namespace mapnik { namespace vector {
                 break;
             }
             }
-            return path_count;
         }
     };
 

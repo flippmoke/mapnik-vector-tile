@@ -70,13 +70,57 @@ namespace mapnik { namespace vector {
         {
         }
 
-        void stop_tile_feature()
+        void stop_tile_feature(mapnik::feature_impl const & feature)
         {
-            if (current_feature_)
+            if (current_feature_ && current_layer_)
             {
-                if (current_feature_->geometry_size() == 0 && current_layer_)
+                unsigned commands = current_feature_->geometry_size();
+                if (commands == 0)
                 {
                     current_layer_->mutable_features()->RemoveLast();
+                }
+                else
+                {
+                    current_feature_->set_id(feature.id());
+                    feature_kv_iterator itr = feature.begin();
+                    feature_kv_iterator end = feature.end();
+                    for ( ;itr!=end; ++itr)
+                    {
+                        std::string const& name = boost::get<0>(*itr);
+                        mapnik::value const& val = boost::get<1>(*itr);
+                        if (!val.is_null())
+                        {
+                            // Insert the key index
+                            keys_container::const_iterator key_itr = keys_.find(name);
+                            if (key_itr == keys_.end())
+                            {
+                                // The key doesn't exist yet in the dictionary.
+                                current_layer_->add_keys(name.c_str(), name.length());
+                                size_t index = keys_.size();
+                                keys_.insert(keys_container::value_type(name, index));
+                                current_feature_->add_tags(index);
+                            }
+                            else
+                            {
+                                current_feature_->add_tags(key_itr->second);
+                            }
+                            // Insert the value index
+                            values_container::const_iterator val_itr = values_.find(val);
+                            if (val_itr == values_.end())
+                            {
+                                // The value doesn't exist yet in the dictionary.
+                                to_tile_value visitor(current_layer_->add_values());
+                                boost::apply_visitor(visitor, val.base());
+                                size_t index = values_.size();
+                                values_.insert(values_container::value_type(val, index));
+                                current_feature_->add_tags(index);
+                            }
+                            else
+                            {
+                                current_feature_->add_tags(val_itr->second);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -85,50 +129,6 @@ namespace mapnik { namespace vector {
         {
             current_feature_ = current_layer_->add_features();
             x_ = y_ = 0;
-
-            current_feature_->set_id(feature.id());
-
-            feature_kv_iterator itr = feature.begin();
-            feature_kv_iterator end = feature.end();
-            for ( ;itr!=end; ++itr)
-            {
-                std::string const& name = boost::get<0>(*itr);
-                mapnik::value const& val = boost::get<1>(*itr);
-                if (!val.is_null())
-                {
-                    // Insert the key index
-                    keys_container::const_iterator key_itr = keys_.find(name);
-                    if (key_itr == keys_.end())
-                    {
-                        // The key doesn't exist yet in the dictionary.
-                        current_layer_->add_keys(name.c_str(), name.length());
-                        size_t index = keys_.size();
-                        keys_.insert(keys_container::value_type(name, index));
-                        current_feature_->add_tags(index);
-                    }
-                    else
-                    {
-                        current_feature_->add_tags(key_itr->second);
-                    }
-
-                    // Insert the value index
-                    values_container::const_iterator val_itr = values_.find(val);
-                    if (val_itr == values_.end())
-                    {
-                        // The value doesn't exist yet in the dictionary.
-                        to_tile_value visitor(current_layer_->add_values());
-                        boost::apply_visitor(visitor, val.base());
-
-                        size_t index = values_.size();
-                        values_.insert(values_container::value_type(val, index));
-                        current_feature_->add_tags(index);
-                    }
-                    else
-                    {
-                        current_feature_->add_tags(val_itr->second);
-                    }
-                }
-            }
         }
 
         void start_tile_layer(std::string const& name)
@@ -136,31 +136,38 @@ namespace mapnik { namespace vector {
             // Key/value dictionary is per-layer.
             keys_.clear();
             values_.clear();
-
             current_layer_ = tile_.add_layers();
-            current_layer_->set_name(name);
-            current_layer_->set_version(1);
-
-            // We currently use path_multiplier as a factor to scale the coordinates.
-            // Eventually, we should replace this with the extent specifying the
-            // bounding box in both dimensions. E.g. an extent of 4096 means that
-            // the coordinates encoded in this tile should be visible in the range
-            // from 0..4095.
-            current_layer_->set_extent(256 * path_multiplier_);
         }
 
-        void stop_tile_layer()
+        void stop_tile_layer(std::string const& name)
         {
-            // NOTE: we intentionally do not remove layers without features
-            // since the re-rendering logic expects a layer entry no matter what
-            //std::cerr << "stop_tile_layer()" << std::endl;
+            if (current_layer_)
+            {
+                if (current_layer_->features_size() == 0)
+                {
+                    tile_.mutable_layers()->RemoveLast();
+                }
+                else
+                {
+                    current_layer_->set_name(name);
+                    current_layer_->set_version(1);
+                    // We currently use path_multiplier as a factor to scale the coordinates.
+                    // Eventually, we should replace this with the extent specifying the
+                    // bounding box in both dimensions. E.g. an extent of 4096 means that
+                    // the coordinates encoded in this tile should be visible in the range
+                    // from 0..4095.
+                    current_layer_->set_extent(256 * path_multiplier_);
+                }
+            }
         }
 
         template <typename T>
-        unsigned add_path(T & path, unsigned tolerance, mapnik::eGeomType type)
+        void add_path(T & path,
+                          unsigned tolerance,
+                          mapnik::eGeomType type,
+                          unsigned & count,
+                          unsigned & commands)
         {
-            unsigned count = 0;
-
             if (current_feature_)
             {
                 path.rewind(0);
@@ -198,38 +205,37 @@ namespace mapnik { namespace vector {
                         int32_t dy = cur_y - y_;
 
                         // Omit movements that are no-ops.
-                        unsigned x_floor = static_cast<unsigned>(std::floor(std::abs(dx) +.5));
-                        unsigned y_floor = static_cast<unsigned>(std::floor(std::abs(dy) +.5));
-                        if (x_floor >= tolerance ||
-                            y_floor >= tolerance ||
-                            length == 0)
+                        unsigned x_floor = static_cast<unsigned>(std::abs(dx));
+                        unsigned y_floor = static_cast<unsigned>(std::abs(dy));
+                        if (length == 0 ||
+                            x_floor >= tolerance ||
+                            y_floor >= tolerance)
                         {
                             // Manual zigzag encoding.
                             current_feature_->add_geometry((dx << 1) ^ (dx >> 31));
                             current_feature_->add_geometry((dy << 1) ^ (dy >> 31));
                             x_ = cur_x;
                             y_ = cur_y;
-
+                            ++count;
                             length++;
                         }
                     }
-                    else if (cmd == SEG_CLOSE) {
+                    else if (cmd == SEG_CLOSE)
+                    {
                         length++;
                     }
-                    else {
+                    else
+                    {
                         throw std::runtime_error("Unknown command type");
                     }
-
-                    ++count;
                 }
-
                 // Update the last length/command value.
                 if (cmd_idx >= 0)
                 {
                     current_feature_->set_geometry(cmd_idx, (length << cmd_bits) | (cmd & ((1 << cmd_bits) - 1)));
                 }
+                commands = cmd_idx+1;
             }
-            return count;
         }
     };
 
