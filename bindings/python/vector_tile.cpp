@@ -3,11 +3,8 @@
 #include "vector_tile_projection.hpp"
 
 #include <stdio.h>
-#include <tr1/memory>
 
 #include <mapnik/box2d.hpp>
-#include <mapnik/layer.hpp>
-#include <mapnik/map.hpp>
 
 #include <Python.h>
 #include <boost/python.hpp>
