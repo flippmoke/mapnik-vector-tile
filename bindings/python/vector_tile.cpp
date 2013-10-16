@@ -22,7 +22,9 @@ public:
     vector_tile(int x, int y, int z, int tilesize);
     int layers_size();
     tile_datasource_ptr layer_datasource(int layer_index);
+    std::string layer_name(int layer_index);
     void parse_from_buffer(std::string const& buffer);
+    mapnik::box2d<double> get_bbox();
 private:
     tile tile_;
     int x_, y_, z_;
@@ -55,6 +57,15 @@ inline tile_datasource_ptr vector_tile::layer_datasource(int layer_index) {
     tile_datasource_ptr ds = boost::make_shared<tile_datasource>(layer, x_, y_, z_, tilesize_);
     ds->set_envelope(bbox_);
     return ds;
+}
+
+inline std::string vector_tile::layer_name(int layer_index) {
+    tile_layer const& layer = tile_.layers(layer_index);
+    return layer.name();
+}
+
+inline mapnik::box2d<double> vector_tile::get_bbox() {
+    return bbox_;
 }
     
 using namespace boost::python;
@@ -89,6 +100,14 @@ BOOST_PYTHON_MODULE(mapnik_vector_tiles)
              "\n"
              "Usage:\n"
              ">>> mvt.layer_datasource(0)\n")
+        .def("layer_name", &vector_tile::layer_name,
+             (arg("layer_index")),
+             "Retrieve the name for a layer by its index.\n",
+             "\n"
+             "Usage:\n"
+             ">>> mvt.layer_name(0)\n")
+        .def("get_bbox", &vector_tile::get_bbox,
+             "Retrieve the bounding box used by the vector tile.")
         ;
  
     class_<tile_datasource,

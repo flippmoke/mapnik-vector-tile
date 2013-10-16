@@ -5,15 +5,11 @@ import os
 from setuptools import setup, Extension
 
 mapnik_args = os.popen('mapnik-config --cflags').read()
-#mapnik_args = mapnik_args.replace(' -O3', '')
-#mapnik_args = mapnik_args.replace(' -O2', '')
-
 
 setup(
     name='mapnik_vector_tiles',
     version='0.0.1',
     author='Blake Thompson',
-    #packages=['MVT'],
     ext_modules=[
         Extension('mapnik_vector_tiles',
             ['bindings/python/vector_tile.cpp', 'src/vector_tile.pb.cc'],
