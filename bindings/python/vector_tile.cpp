@@ -1,8 +1,8 @@
+#include <iostream>
+
 #include "vector_tile_datasource.hpp"
 #include "vector_tile_compression.hpp"
 #include "vector_tile_projection.hpp"
-
-#include <stdio.h>
 
 #include <mapnik/box2d.hpp>
 
@@ -57,8 +57,12 @@ inline tile_datasource_ptr vector_tile::layer_datasource(int layer_index) {
 }
 
 inline std::string vector_tile::layer_name(int layer_index) {
-    tile_layer const& layer = tile_.layers(layer_index);
-    return layer.name();
+    if (layer_index < layers_size()) {
+        tile_layer const& layer = tile_.layers(layer_index);
+        return layer.name();
+    } else {
+        throw std::invalid_argument("Invalid layer index\n");
+    }
 }
 
 inline mapnik::box2d<double> vector_tile::get_bbox() {
