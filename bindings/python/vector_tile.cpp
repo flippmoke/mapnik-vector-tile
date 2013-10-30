@@ -1,8 +1,9 @@
+#include <iostream>
+#include <stdexcept>
+
 #include "vector_tile_datasource.hpp"
 #include "vector_tile_compression.hpp"
 #include "vector_tile_projection.hpp"
-
-#include <stdio.h>
 
 #include <mapnik/box2d.hpp>
 
@@ -42,7 +43,16 @@ inline vector_tile::vector_tile(int x, int y, int z, int tilesize)
 }
 
 inline void vector_tile::parse_from_buffer(std::string const& buffer) {
-    tile_.ParseFromString(buffer);
+    std::string tile_content;
+    if (is_compressed(buffer)) {
+        decompress(buffer, tile_content);
+    } else {
+        tile_content = buffer;
+    }
+    if (!tile_.ParseFromString(tile_content)) {
+        PyErr_SetString(PyExc_ValueError, "Invalid protobuf");
+        throw boost::python::error_already_set();
+    }
 }
 
 inline int vector_tile::layers_size() {
@@ -57,8 +67,13 @@ inline tile_datasource_ptr vector_tile::layer_datasource(int layer_index) {
 }
 
 inline std::string vector_tile::layer_name(int layer_index) {
-    tile_layer const& layer = tile_.layers(layer_index);
-    return layer.name();
+    if (layer_index < layers_size()) {
+        tile_layer const& layer = tile_.layers(layer_index);
+        return layer.name();
+    } else {
+        PyErr_SetString(PyExc_IndexError, "Invalid layer_index");
+        throw boost::python::error_already_set();
+    }
 }
 
 inline mapnik::box2d<double> vector_tile::get_bbox() {
@@ -80,8 +95,8 @@ BOOST_PYTHON_MODULE(mapnik_vector_tiles)
                         ">>> mvt = VectorTile(0,0,0, 4096)\n"))
         .def("parse_from_buffer", &vector_tile::parse_from_buffer,
              (arg("buffer")), 
-             "Load a protobuffer as an uncompressed buffer\n"
-             "string into the VectorTile object.\n"
+             "Load a zlib-compressed or uncompressed protobuffer as a\n"
+             "buffer string into the VectorTile object.\n"
              "\n"
              "Usage:\n"
              ">>> mvt.parse_from_buffer(buffer)\n")
