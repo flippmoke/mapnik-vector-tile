@@ -1,4 +1,5 @@
 #include <iostream>
+#include <stdexcept>
 
 #include "vector_tile_datasource.hpp"
 #include "vector_tile_compression.hpp"
@@ -49,7 +50,8 @@ inline void vector_tile::parse_from_buffer(std::string const& buffer) {
         tile_content = buffer;
     }
     if (!tile_.ParseFromString(tile_content)) {
-        throw std::invalid_argument("Invalid protobuf\n");
+        PyErr_SetString(PyExc_ValueError, "Invalid protobuf");
+        throw boost::python::error_already_set();
     }
 }
 
@@ -69,7 +71,8 @@ inline std::string vector_tile::layer_name(int layer_index) {
         tile_layer const& layer = tile_.layers(layer_index);
         return layer.name();
     } else {
-        throw std::invalid_argument("Invalid layer index\n");
+        PyErr_SetString(PyExc_IndexError, "Invalid layer_index");
+        throw boost::python::error_already_set();
     }
 }
 
